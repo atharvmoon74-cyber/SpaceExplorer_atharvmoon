@@ -1,0 +1,1784 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>NASA Solar Engine</title>
+<style>
+body{margin:0;overflow:hidden;background:black;font-family:Arial;color:white}
+#ui{
+position:absolute;
+top:20px;
+right:20px;
+width:300px;
+padding:20px;
+background:rgba(0,20,60,0.85);
+border:1px solid cyan;
+border-radius:15px;
+box-shadow:0 0 20px cyan;
+display:none;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+<h2 id="planetTitle"></h2>
+<p id="planetInfo"></p>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+
+/* ================= ENGINE SETUP ================= */
+
+let scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.1,1000000);
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setClearColor(0x000000);
+document.body.appendChild(renderer.domElement);
+
+camera.position.set(0,6000,35000);
+
+let clock = new THREE.Clock();
+let raycaster = new THREE.Raycaster();
+let mouse = new THREE.Vector2();
+
+scene.add(new THREE.AmbientLight(0xffffff,0.25));
+let sunLight = new THREE.PointLight(0xffffff,3,0);
+scene.add(sunLight);
+
+/* ================= STARFIELD ================= */
+
+let starGeo = new THREE.BufferGeometry();
+let starVerts=[];
+for(let i=0;i<30000;i++){
+starVerts.push(
+(Math.random()-0.5)*800000,
+(Math.random()-0.5)*800000,
+(Math.random()-0.5)*800000
+);
+}
+starGeo.setAttribute("position",new THREE.Float32BufferAttribute(starVerts,3));
+let starMat = new THREE.PointsMaterial({color:0xffffff,size:150});
+scene.add(new THREE.Points(starGeo,starMat));
+
+/* ================= TEXTURE LOADER ================= */
+
+let loader = new THREE.TextureLoader();
+
+/* ================= SUN ================= */
+
+let sunGeo = new THREE.SphereGeometry(5000,64,64);
+let sunMat = new THREE.MeshBasicMaterial({
+map: loader.load("textures/sun.jpg", undefined, undefined, ()=>{})
+});
+let sun = new THREE.Mesh(sunGeo,sunMat);
+scene.add(sun);
+
+/* Glow Layer */
+let glowGeo = new THREE.SphereGeometry(5600,64,64);
+let glowMat = new THREE.MeshBasicMaterial({
+color:0xffaa00,
+transparent:true,
+opacity:0.2
+});
+let sunGlow = new THREE.Mesh(glowGeo,glowMat);
+scene.add(sunGlow);
+
+/* ================= PLANET SYSTEM ================= */
+
+let celestialBodies=[];
+
+function createPlanet(data){
+
+let geo = new THREE.SphereGeometry(data.size,64,64);
+
+let mat = new THREE.MeshStandardMaterial({
+map: loader.load(data.texture, undefined, undefined, ()=>{})
+});
+
+let mesh = new THREE.Mesh(geo,mat);
+
+mesh.userData = {
+name:data.name,
+distance:data.distance,
+angle:Math.random()*Math.PI*2,
+speed:data.speed,
+info:data.info
+};
+
+scene.add(mesh);
+celestialBodies.push(mesh);
+
+/* Orbit ring */
+let orbitGeo=new THREE.RingGeometry(data.distance-40,data.distance+40,128);
+let orbitMat=new THREE.MeshBasicMaterial({
+color:0x00ffff,
+transparent:true,
+opacity:0.12,
+side:THREE.DoubleSide
+});
+let orbit=new THREE.Mesh(orbitGeo,orbitMat);
+orbit.rotation.x=Math.PI/2;
+scene.add(orbit);
+
+/* Saturn rings */
+if(data.ring){
+let ringGeo=new THREE.RingGeometry(data.size+800,data.size+2000,128);
+let ringMat=new THREE.MeshBasicMaterial({
+map: loader.load("textures/saturn_ring.png"),
+side:THREE.DoubleSide,
+transparent:true
+});
+let ringMesh=new THREE.Mesh(ringGeo,ringMat);
+ringMesh.rotation.x=Math.PI/2;
+mesh.add(ringMesh);
+}
+}
+
+/* ================= CREATE PLANETS IN ORDER ================= */
+
+celestialBodies.push(sun); // Sun first
+
+createPlanet({
+name:"Mercury",
+distance:10000,
+size:900,
+speed:0.004,
+texture:"textures/mercury.jpg",
+info:"Smallest planet. No atmosphere. Extreme temperature variation."
+});
+
+createPlanet({
+name:"Venus",
+distance:15000,
+size:1100,
+speed:0.003,
+texture:"textures/venus.jpg",
+info:"Dense CO2 atmosphere. Surface hotter than Mercury."
+});
+
+createPlanet({
+name:"Earth",
+distance:22000,
+size:1200,
+speed:0.002,
+texture:"textures/earth.jpg",
+info:"71% water. Only known planet supporting life."
+});
+
+createPlanet({
+name:"Mars",
+distance:28000,
+size:1000,
+speed:0.0018,
+texture:"textures/mars.jpg",
+info:"Red planet. Evidence of ancient water flows."
+});
+
+createPlanet({
+name:"Jupiter",
+distance:36000,
+size:3200,
+speed:0.001,
+texture:"textures/jupiter.jpg",
+info:"Largest planet. Great Red Spot storm lasts centuries."
+});
+
+createPlanet({
+name:"Saturn",
+distance:45000,
+size:2700,
+speed:0.0008,
+texture:"textures/saturn.jpg",
+ring:true,
+info:"Spectacular ring system. Low density gas giant."
+});
+
+createPlanet({
+name:"Uranus",
+distance:53000,
+size:2200,
+speed:0.0006,
+texture:"textures/uranus.jpg",
+info:"Rotates sideways at 98° tilt."
+});
+
+createPlanet({
+name:"Neptune",
+distance:61000,
+size:2100,
+speed:0.0005,
+texture:"textures/neptune.jpg",
+info:"Strongest winds in solar system. Deep blue methane atmosphere."
+});
+
+/* ================= ASTEROID BELT ================= */
+
+let asteroids=[];
+for(let i=0;i<900;i++){
+let g=new THREE.DodecahedronGeometry(90);
+let m=new THREE.MeshStandardMaterial({color:0x777777});
+let a=new THREE.Mesh(g,m);
+a.userData={
+angle:Math.random()*Math.PI*2,
+dist:32000+(Math.random()-0.5)*4000,
+speed:0.002+Math.random()*0.002
+};
+scene.add(a);
+asteroids.push(a);
+}
+
+/* ================= CAMERA SYSTEM ================= */
+
+let target=null;
+
+function focusBody(body){
+
+target = body;
+
+document.getElementById("ui").style.display="block";
+document.getElementById("planetTitle").innerText = body.userData?.name || "Sun";
+document.getElementById("planetInfo").innerText =
+body.userData?.info ||
+"Sun: A G-type main-sequence star. 99.8% of solar system mass.";
+
+}
+
+/* ================= EVENTS ================= */
+
+addEventListener("click",e=>{
+mouse.x=(e.clientX/innerWidth)*2-1;
+mouse.y=-(e.clientY/innerHeight)*2+1;
+raycaster.setFromCamera(mouse,camera);
+let hits=raycaster.intersectObjects(celestialBodies);
+if(hits.length>0) focusBody(hits[0].object);
+});
+
+let index=0;
+addEventListener("keydown",e=>{
+if(e.key==="Enter"){
+index++;
+if(index>=celestialBodies.length) index=0;
+focusBody(celestialBodies[index]);
+}
+});
+
+/* ================= ANIMATION ================= */
+
+function animate(){
+requestAnimationFrame(animate);
+let delta=clock.getDelta();
+
+/* Sun rotation */
+sun.rotation.y+=0.002;
+sunGlow.rotation.y+=0.001;
+
+/* Planet orbit */
+celestialBodies.forEach(p=>{
+if(p!==sun){
+p.userData.angle+=p.userData.speed;
+p.position.x=Math.cos(p.userData.angle)*p.userData.distance;
+p.position.z=Math.sin(p.userData.angle)*p.userData.distance;
+}
+});
+
+/* Asteroids */
+asteroids.forEach(a=>{
+a.userData.angle+=a.userData.speed;
+a.position.x=Math.cos(a.userData.angle)*a.userData.dist;
+a.position.z=Math.sin(a.userData.angle)*a.userData.dist;
+});
+
+/* Smooth camera */
+if(target){
+let desired=new THREE.Vector3(
+target.position.x,
+target.position.y,
+target.position.z + (target.geometry?.parameters?.radius || 5000)*6
+);
+camera.position.lerp(desired,0.04);
+camera.lookAt(target.position);
+}
+
+renderer.render(scene,camera);
+}
+
+animate();
+/* ================== ADVANCED CINEMATIC EXTENSION ================== */
+
+/* ===== Add Detailed Planet Data ===== */
+
+const PLANET_DATA = {
+Sun:{
+type:"G-Type Main Sequence Star",
+diameter:"1,391,000 km",
+temperature:"5,500°C surface",
+gravity:"274 m/s²",
+moons:"0",
+fun:"Contains 99.8% of solar system mass."
+},
+Mercury:{
+type:"Terrestrial",
+diameter:"4,879 km",
+temperature:"-173°C to 427°C",
+gravity:"3.7 m/s²",
+moons:"0",
+fun:"A year is only 88 Earth days."
+},
+Venus:{
+type:"Terrestrial",
+diameter:"12,104 km",
+temperature:"462°C",
+gravity:"8.87 m/s²",
+moons:"0",
+fun:"Rotates backwards."
+},
+Earth:{
+type:"Terrestrial",
+diameter:"12,742 km",
+temperature:"15°C average",
+gravity:"9.8 m/s²",
+moons:"1",
+fun:"Only known planet with life."
+},
+Mars:{
+type:"Terrestrial",
+diameter:"6,779 km",
+temperature:"-60°C average",
+gravity:"3.7 m/s²",
+moons:"2",
+fun:"Olympus Mons is tallest volcano."
+},
+Jupiter:{
+type:"Gas Giant",
+diameter:"139,820 km",
+temperature:"-145°C",
+gravity:"24.79 m/s²",
+moons:"95+",
+fun:"Has the Great Red Spot storm."
+},
+Saturn:{
+type:"Gas Giant",
+diameter:"116,460 km",
+temperature:"-178°C",
+gravity:"10.44 m/s²",
+moons:"83+",
+fun:"Less dense than water."
+},
+Uranus:{
+type:"Ice Giant",
+diameter:"50,724 km",
+temperature:"-224°C",
+gravity:"8.69 m/s²",
+moons:"27",
+fun:"Rotates on its side."
+},
+Neptune:{
+type:"Ice Giant",
+diameter:"49,244 km",
+temperature:"-214°C",
+gravity:"11.15 m/s²",
+moons:"14",
+fun:"Strongest winds in solar system."
+}
+};
+
+/* ===== Enhance Info Panel ===== */
+
+function focusBody(body){
+
+target = body;
+
+let name = body.userData?.name || "Sun";
+let data = PLANET_DATA[name];
+
+document.getElementById("ui").style.display="block";
+document.getElementById("planetTitle").innerText = name;
+
+if(data){
+document.getElementById("planetInfo").innerHTML =
+"<b>Type:</b> "+data.type+"<br>"+
+"<b>Diameter:</b> "+data.diameter+"<br>"+
+"<b>Temperature:</b> "+data.temperature+"<br>"+
+"<b>Gravity:</b> "+data.gravity+"<br>"+
+"<b>Moons:</b> "+data.moons+"<br><br>"+
+data.fun;
+}
+}
+
+/* ===== Planet Axial Rotation ===== */
+
+celestialBodies.forEach(p=>{
+if(p!==sun){
+p.rotationSpeed = 0.01 + Math.random()*0.01;
+p.rotation.x = Math.random()*0.2;
+}
+});
+
+/* ===== Hyperspace Warp Tunnel ===== */
+
+function hyperspaceWarp(){
+
+let speed=0;
+let originalZ=camera.position.z;
+
+function warp(){
+speed+=800;
+camera.position.z -= speed;
+
+if(speed<20000){
+requestAnimationFrame(warp);
+}else{
+camera.position.z = originalZ;
+}
+}
+
+warp();
+}
+
+/* ===== Scroll Zoom ===== */
+
+addEventListener("wheel",e=>{
+camera.position.z += e.deltaY * 0.5;
+});
+
+/* ===== SHIFT + ENTER = Backward Switch ===== */
+
+addEventListener("keydown",e=>{
+if(e.key==="Enter" && e.shiftKey){
+index--;
+if(index<0) index=celestialBodies.length-1;
+focusBody(celestialBodies[index]);
+}
+if(e.key==="h"){
+hyperspaceWarp();
+}
+});
+
+/* ===== Cinematic Idle Auto-Rotation ===== */
+
+let idleRotation=true;
+
+setInterval(()=>{
+if(!target){
+camera.position.applyAxisAngle(new THREE.Vector3(0,1,0),0.002);
+camera.lookAt(0,0,0);
+}
+},16);
+
+/* ===== Sun Pulse Glow ===== */
+
+setInterval(()=>{
+sunGlow.scale.x = 1 + Math.sin(Date.now()*0.002)*0.05;
+sunGlow.scale.y = 1 + Math.sin(Date.now()*0.002)*0.05;
+sunGlow.scale.z = 1 + Math.sin(Date.now()*0.002)*0.05;
+},30);
+
+/* ===== Enhance Animation Loop ===== */
+
+let oldAnimate = animate;
+animate = function(){
+requestAnimationFrame(animate);
+let delta=clock.getDelta();
+
+sun.rotation.y+=0.002;
+
+celestialBodies.forEach(p=>{
+if(p!==sun){
+p.userData.angle+=p.userData.speed;
+p.position.x=Math.cos(p.userData.angle)*p.userData.distance;
+p.position.z=Math.sin(p.userData.angle)*p.userData.distance;
+p.rotation.y += p.rotationSpeed || 0;
+}
+});
+
+asteroids.forEach(a=>{
+a.userData.angle+=a.userData.speed;
+a.position.x=Math.cos(a.userData.angle)*a.userData.dist;
+a.position.z=Math.sin(a.userData.angle)*a.userData.dist;
+a.rotation.x+=0.02;
+a.rotation.y+=0.02;
+});
+
+if(target){
+let desired=new THREE.Vector3(
+target.position.x,
+target.position.y,
+target.position.z + (target.geometry?.parameters?.radius || 5000)*6
+);
+camera.position.lerp(desired,0.05);
+camera.lookAt(target.position);
+}
+
+renderer.render(scene,camera);
+};
+
+animate();
+
+/* ================= END ADVANCED EXTENSION ================= */
+/* ==========================================================
+   🚀 ULTRA CINEMATIC EXPANSION PACK
+========================================================== */
+
+/* ================== BIGGER INFO PANEL DESIGN ================== */
+
+let ui = document.getElementById("ui");
+ui.style.width = "420px";
+ui.style.fontSize = "15px";
+ui.style.lineHeight = "1.6";
+ui.style.background = "linear-gradient(145deg, rgba(0,20,60,0.95), rgba(0,60,120,0.9))";
+ui.style.boxShadow = "0 0 40px cyan";
+ui.style.border = "2px solid cyan";
+
+/* Animate panel glow */
+setInterval(()=>{
+ui.style.boxShadow = "0 0 "+(30+Math.sin(Date.now()*0.003)*15)+"px cyan";
+},40);
+
+/* ================== ADVANCED PLANET DATA ================== */
+
+const EXTRA_DATA = {
+Sun:{age:"4.6 Billion Years",composition:"Hydrogen & Helium Fusion Core"},
+Mercury:{orbit:"88 Earth Days",tilt:"0.03°"},
+Venus:{orbit:"225 Earth Days",tilt:"177°"},
+Earth:{orbit:"365 Days",tilt:"23.5°"},
+Mars:{orbit:"687 Days",tilt:"25°"},
+Jupiter:{orbit:"12 Years",tilt:"3°"},
+Saturn:{orbit:"29 Years",tilt:"26°"},
+Uranus:{orbit:"84 Years",tilt:"98°"},
+Neptune:{orbit:"165 Years",tilt:"28°"}
+};
+
+/* Enhance focusBody to show more data */
+let originalFocus = focusBody;
+focusBody = function(body){
+
+originalFocus(body);
+
+let name = body.userData?.name || "Sun";
+let extra = EXTRA_DATA[name];
+
+if(extra){
+document.getElementById("planetInfo").innerHTML +=
+"<br><br><b>Orbital Period:</b> "+extra.orbit+
+"<br><b>Axial Tilt:</b> "+extra.tilt+
+"<br><b>Age:</b> "+(extra.age || "—")+
+"<br><b>Composition:</b> "+(extra.composition || "—");
+}
+};
+
+/* ================== PROCEDURAL LAVA SUN SHADER ================== */
+
+let lavaMaterial = new THREE.ShaderMaterial({
+uniforms:{time:{value:0}},
+vertexShader:`
+varying vec2 vUv;
+void main(){
+vUv = uv;
+gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}
+`,
+fragmentShader:`
+uniform float time;
+varying vec2 vUv;
+
+float random(vec2 p){
+return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);
+}
+
+void main(){
+float noise = random(vUv*10.0 + time*0.5);
+float glow = sin(vUv.y*20.0 + time*3.0)*0.5+0.5;
+vec3 color = vec3(1.0,0.4+noise*0.4,0.0) + glow*0.2;
+gl_FragColor = vec4(color,1.0);
+}
+`
+});
+
+sun.material = lavaMaterial;
+
+/* Update shader time */
+setInterval(()=>{
+sun.material.uniforms.time.value += 0.05;
+},40);
+
+/* ================== FAKE BLOOM GLOW ================== */
+
+let bloomLayer = new THREE.Mesh(
+new THREE.SphereGeometry(7000,64,64),
+new THREE.MeshBasicMaterial({
+color:0xffaa00,
+transparent:true,
+opacity:0.15
+})
+);
+scene.add(bloomLayer);
+
+setInterval(()=>{
+bloomLayer.scale.setScalar(1 + Math.sin(Date.now()*0.002)*0.08);
+},30);
+
+/* ================== COCKPIT HUD OVERLAY ================== */
+
+/* ================== GALAXY TRAVEL MODE ================== */
+
+function galaxyTravel(){
+
+let galaxySphere = new THREE.Mesh(
+new THREE.SphereGeometry(300000,64,64),
+new THREE.MeshBasicMaterial({
+color:0x001133,
+side:THREE.BackSide
+})
+);
+
+scene.add(galaxySphere);
+
+let spin=0;
+
+function spinGalaxy(){
+spin+=0.001;
+galaxySphere.rotation.y=spin;
+requestAnimationFrame(spinGalaxy);
+}
+
+spinGalaxy();
+}
+
+/* ================== BLACK HOLE PORTAL ================== */
+
+function blackHoleJump(){
+
+let hole = new THREE.Mesh(
+new THREE.SphereGeometry(6000,64,64),
+new THREE.MeshBasicMaterial({color:0x000000})
+);
+
+scene.add(hole);
+hole.position.set(0,0,-20000);
+
+let ring = new THREE.Mesh(
+new THREE.TorusGeometry(8000,400,16,100),
+new THREE.MeshBasicMaterial({color:0x6600ff})
+);
+
+scene.add(ring);
+ring.position.copy(hole.position);
+
+let t=0;
+
+function portal(){
+t+=0.02;
+camera.position.lerp(new THREE.Vector3(0,0,-20000),0.03);
+ring.rotation.x+=0.1;
+ring.rotation.y+=0.1;
+
+if(t<3){
+requestAnimationFrame(portal);
+}else{
+scene.remove(hole);
+scene.remove(ring);
+camera.position.set(0,6000,35000);
+}
+}
+
+portal();
+}
+
+/* ================== KEYBINDS ================== */
+
+addEventListener("keydown",e=>{
+if(e.key==="g") galaxyTravel();
+if(e.key==="b") blackHoleJump();
+});
+
+/* ================== CAMERA SHAKE EFFECT ================== */
+
+function cameraShake(){
+let shake=0;
+function shakeLoop(){
+shake++;
+camera.position.x += (Math.random()-0.5)*50;
+camera.position.y += (Math.random()-0.5)*50;
+if(shake<20) requestAnimationFrame(shakeLoop);
+}
+shakeLoop();
+}
+
+/* Trigger shake during warp */
+addEventListener("keydown",e=>{
+if(e.key==="h") cameraShake();
+});
+
+/* ================= END CINEMATIC PACK ================= */
+/* =====================================================
+   🌌 ULTRA REALISM & AESTHETIC EXPANSION PACK
+===================================================== */
+
+/* ================= ORBIT VISUAL RINGS ================= */
+
+planets.forEach(p=>{
+let orbitRing = new THREE.Mesh(
+new THREE.RingGeometry(p.userData.distance-50, p.userData.distance+50,128),
+new THREE.MeshBasicMaterial({
+color:0x00ffff,
+side:THREE.DoubleSide,
+transparent:true,
+opacity:0.15
+})
+);
+orbitRing.rotation.x = Math.PI/2;
+scene.add(orbitRing);
+});
+
+/* ================= PLANET ATMOSPHERE GLOW ================= */
+
+planets.forEach(p=>{
+let glow = new THREE.Mesh(
+new THREE.SphereGeometry(p.geometry.parameters.radius*1.1,32,32),
+new THREE.MeshBasicMaterial({
+color:0x44aaff,
+transparent:true,
+opacity:0.15
+})
+);
+p.add(glow);
+});
+
+/* ================= EARTH CLOUD LAYER ================= */
+
+let earth = planets.find(p=>p.userData.name==="Earth");
+if(earth){
+let cloud = new THREE.Mesh(
+new THREE.SphereGeometry(earth.geometry.parameters.radius*1.03,32,32),
+new THREE.MeshBasicMaterial({
+color:0xffffff,
+transparent:true,
+opacity:0.1
+})
+);
+earth.add(cloud);
+
+setInterval(()=>{
+cloud.rotation.y+=0.002;
+},30);
+}
+
+/* ================= STAR TWINKLE EFFECT ================= */
+
+stars.geometry.attributes.position.needsUpdate=true;
+
+setInterval(()=>{
+stars.material.opacity = 0.7 + Math.random()*0.3;
+},200);
+
+/* ================= PLANET ROTATION SPEED VARIATION ================= */
+
+planets.forEach((p,i)=>{
+p.userData.rotationSpeed = 0.002 + i*0.0005;
+});
+
+let originalAnimate = animate;
+animate = function(){
+
+planets.forEach(p=>{
+p.rotation.y += p.userData.rotationSpeed;
+});
+
+originalAnimate();
+};
+
+/* ================= DISTANCE + GRAVITY INFO ================= */
+
+const PHYSICS_DATA = {
+Mercury:{gravity:"3.7 m/s²",temp:"167°C"},
+Venus:{gravity:"8.87 m/s²",temp:"464°C"},
+Earth:{gravity:"9.8 m/s²",temp:"15°C avg"},
+Mars:{gravity:"3.71 m/s²",temp:"-60°C"},
+Jupiter:{gravity:"24.79 m/s²",temp:"-145°C"},
+Saturn:{gravity:"10.44 m/s²",temp:"-178°C"},
+Uranus:{gravity:"8.69 m/s²",temp:"-224°C"},
+Neptune:{gravity:"11.15 m/s²",temp:"-214°C"}
+};
+
+let oldFocus = focusBody;
+focusBody = function(body){
+
+oldFocus(body);
+
+let name = body.userData?.name;
+let physics = PHYSICS_DATA[name];
+
+if(physics){
+document.getElementById("planetInfo").innerHTML +=
+"<br><br><b>Surface Gravity:</b> "+physics.gravity+
+"<br><b>Avg Temperature:</b> "+physics.temp+
+"<br><b>Distance from Sun:</b> "+body.userData.distance+" km (scaled)";
+}
+};
+
+/* ================= RADAR SWEEP ANIMATION ================= */
+
+let radar = document.createElement("div");
+radar.style.position="absolute";
+radar.style.right="20px";
+radar.style.bottom="20px";
+radar.style.width="150px";
+radar.style.height="150px";
+radar.style.border="2px solid cyan";
+radar.style.borderRadius="50%";
+radar.style.boxShadow="0 0 20px cyan";
+radar.style.background="rgba(0,0,0,0.4)";
+document.body.appendChild(radar);
+
+let sweep = document.createElement("div");
+sweep.style.width="2px";
+sweep.style.height="150px";
+sweep.style.background="cyan";
+sweep.style.position="absolute";
+sweep.style.left="50%";
+sweep.style.transformOrigin="bottom center";
+radar.appendChild(sweep);
+
+setInterval(()=>{
+sweep.style.transform="rotate("+Date.now()*0.1+"deg)";
+},30);
+
+/* ================= CINEMATIC CAMERA BREATH ================= */
+
+setInterval(()=>{
+camera.position.y += Math.sin(Date.now()*0.001)*2;
+},30);
+
+/* ================= PLANET ENTRY FLASH ================= */
+
+function entryFlash(){
+let flash = document.createElement("div");
+flash.style.position="absolute";
+flash.style.top="0";
+flash.style.left="0";
+flash.style.width="100%";
+flash.style.height="100%";
+flash.style.background="white";
+flash.style.opacity="0.8";
+flash.style.transition="opacity 1s";
+document.body.appendChild(flash);
+
+setTimeout(()=>{flash.style.opacity="0";},50);
+setTimeout(()=>{document.body.removeChild(flash);},1000);
+}
+
+addEventListener("keydown",e=>{
+if(e.key==="Enter") entryFlash();
+});
+
+/* ================= PARALLAX STAR LAYERS ================= */
+
+let deepStars = new THREE.Points(
+new THREE.BufferGeometry().setAttribute(
+"position",
+new THREE.Float32BufferAttribute(
+Array.from({length:2000},()=> (Math.random()-0.5)*200000),
+3
+)
+),
+new THREE.PointsMaterial({color:0xffffff,size:3})
+);
+scene.add(deepStars);
+
+setInterval(()=>{
+deepStars.rotation.y+=0.0001;
+},30);
+
+/* ================= SPACE AMBIENT HUM ================= */
+
+let audio = new Audio("https://cdn.pixabay.com/download/audio/2022/03/15/audio_5d9b69e8b2.mp3?filename=space-ambient-110997.mp3");
+audio.loop=true;
+audio.volume=0.2;
+
+addEventListener("click",()=>{
+audio.play();
+},{once:true});
+
+/* ================= SMOOTH CROSSFADE TRANSITION ================= */
+
+function crossfade(){
+document.body.style.transition="background 1s";
+document.body.style.background="black";
+setTimeout(()=>{
+document.body.style.background="transparent";
+},1000);
+}
+
+addEventListener("keydown",e=>{
+if(e.key==="Enter") crossfade();
+});
+
+/* ================= END PATCH ================= */
+/* =====================================================
+   🚀 INTERSTELLAR GAME MODE EXPANSION
+===================================================== */
+
+/* ================= TIME CONTROL ================= */
+
+let timeScale = 1;
+
+window.addEventListener("keydown",e=>{
+if(e.key==="1") timeScale=1;
+if(e.key==="2") timeScale=10;
+if(e.key==="3") timeScale=100;
+});
+
+/* ================= DAY/NIGHT SHADING ================= */
+
+let sunLights = new THREE.PointLight(0xffffff,2,500000);
+scene.add(sunLight);
+
+let ambient = new THREE.AmbientLight(0x222233);
+scene.add(ambient);
+
+planets.forEach(p=>{
+p.material = new THREE.MeshStandardMaterial({
+map:p.material.map,
+roughness:1,
+metalness:0
+});
+});
+
+/* ================= MOON SYSTEM ================= */
+
+function createMoon(parent,size,distance,speed){
+
+let moon = new THREE.Mesh(
+new THREE.SphereGeometry(size,32,32),
+new THREE.MeshStandardMaterial({color:0xaaaaaa})
+);
+
+scene.add(moon);
+
+moon.userData = {
+parent:parent,
+distance:distance,
+angle:Math.random()*Math.PI*2,
+speed:speed
+};
+
+moons.push(moon);
+}
+
+let moons=[];
+let earths = planets.find(p=>p.userData.name==="Earth");
+if(earths) createMoon(earth,600,5000,0.01);
+
+let mars = planets.find(p=>p.userData.name==="Mars");
+if(mars) createMoon(mars,300,3500,0.02);
+
+/* ================= ASTEROID BELT PHYSICS ================= */
+
+let asteroid=[];
+for(let i=0;i<300;i++){
+let asteroid = new THREE.Mesh(
+new THREE.DodecahedronGeometry(Math.random()*200+100),
+new THREE.MeshStandardMaterial({color:0x888888})
+);
+
+asteroid.userData={
+distance:60000 + Math.random()*10000,
+angle:Math.random()*Math.PI*2,
+speed:0.001+Math.random()*0.002
+};
+
+scene.add(asteroid);
+asteroids.push(asteroid);
+}
+
+/* ================= SPACESHIP COCKPIT VIEW ================= */
+
+let ship = new THREE.Group();
+
+let body = new THREE.Mesh(
+new THREE.CylinderGeometry(200,200,1200,32),
+new THREE.MeshStandardMaterial({color:0x222222})
+);
+body.rotation.z=Math.PI/2;
+
+ship.add(body);
+
+scene.add(ship);
+
+let cockpitMode=false;
+
+window.addEventListener("keydown",e=>{
+if(e.key==="c"){
+cockpitMode=!cockpitMode;
+if(cockpitMode){
+camera.position.set(0,0,0);
+ship.add(camera);
+}else{
+scene.add(camera);
+camera.position.set(0,6000,35000);
+}
+}
+});
+
+/* ================= LAND ON PLANET ================= */
+
+window.addEventListener("keydown",e=>{
+if(e.key==="l" && focusedBody){
+let target = focusedBody.position.clone();
+let normal = target.clone().normalize();
+camera.position.copy(target.clone().add(normal.multiplyScalar(2000)));
+camera.lookAt(target);
+}
+});
+
+/* ================= WORMHOLE TUNNEL ================= */
+
+function wormhole(){
+
+let geometry = new THREE.CylinderGeometry(1000,1000,50000,64,64,true);
+let material = new THREE.MeshBasicMaterial({
+color:0x6600ff,
+wireframe:true
+});
+
+let tunnel = new THREE.Mesh(geometry,material);
+tunnel.rotation.z=Math.PI/2;
+scene.add(tunnel);
+
+let t=0;
+
+function animateTunnel(){
+t+=0.05;
+camera.position.z -= 200*timeScale;
+tunnel.rotation.x += 0.1;
+if(t<200){
+requestAnimationFrame(animateTunnel);
+}else{
+scene.remove(tunnel);
+camera.position.set(0,6000,35000);
+}
+}
+
+animateTunnel();
+}
+
+window.addEventListener("keydown",e=>{
+if(e.key==="w") wormhole();
+});
+
+/* ================= SUPERNOVA EVENT ================= */
+
+function supernova(){
+
+let explosion = new THREE.Mesh(
+new THREE.SphereGeometry(5000,64,64),
+new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true})
+);
+
+scene.add(explosion);
+
+let scale=1;
+
+function expand(){
+scale+=0.2;
+explosion.scale.set(scale,scale,scale);
+explosion.material.opacity-=0.01;
+if(explosion.material.opacity>0){
+requestAnimationFrame(expand);
+}else{
+scene.remove(explosion);
+}
+}
+
+expand();
+}
+
+window.addEventListener("keydown",e=>{
+if(e.key==="x") supernova();
+});
+
+/* ================= UPDATE LOOP EXTENSION ================= */
+
+let oldAnimate2 = animate;
+
+animate = function(){
+
+moons.forEach(m=>{
+m.userData.angle += m.userData.speed*timeScale;
+let parentPos = m.userData.parent.position;
+m.position.set(
+parentPos.x + Math.cos(m.userData.angle)*m.userData.distance,
+0,
+parentPos.z + Math.sin(m.userData.angle)*m.userData.distance
+);
+});
+
+asteroids.forEach(a=>{
+a.userData.angle += a.userData.speed*timeScale;
+a.position.set(
+Math.cos(a.userData.angle)*a.userData.distance,
+(Math.random()-0.5)*500,
+Math.sin(a.userData.angle)*a.userData.distance
+);
+});
+
+planets.forEach(p=>{
+p.rotation.y += 0.002*timeScale;
+});
+
+oldAnimate2();
+};
+
+/* ================= HUD UPDATE ================= */
+
+let hudText = document.createElement("div");
+hudText.style.position="absolute";
+hudText.style.top="10px";
+hudText.style.right="10px";
+hudText.style.color="cyan";
+hudText.style.fontFamily="monospace";
+hudText.style.background="rgba(0,0,0,0.5)";
+hudText.style.padding="10px";
+hudText.style.border="1px solid cyan";
+document.body.appendChild(hudText);
+
+setInterval(()=>{
+hudText.innerHTML =
+"Time Scale: "+timeScale+"x<br>"+
+"Cockpit: "+(cockpitMode?"ON":"OFF")+"<br>"+
+"Moons: "+moons.length+"<br>"+
+"Asteroids: "+asteroids.length;
+},200);
+
+/* ================= END INTERSTELLAR PATCH ================= */
+/* ======================================================
+   🌌 HOSTING READY CINEMATIC BEAUTY BOOST
+   Safe • Independent • No Variable Conflicts
+====================================================== */
+
+(function(){
+
+/* ========== SOFT SPACE FOG ========== */
+if(scene){
+scene.fog = new THREE.FogExp2(0x000814, 0.0000008);
+}
+
+/* ========== DEEP STAR LAYERS ========== */
+function createStarLayer(count, size, spread){
+let geo = new THREE.BufferGeometry();
+let vertices = [];
+
+for(let i=0;i<count;i++){
+vertices.push(
+(Math.random()-0.5)*spread,
+(Math.random()-0.5)*spread,
+(Math.random()-0.5)*spread
+);
+}
+
+geo.setAttribute("position",
+new THREE.Float32BufferAttribute(vertices,3));
+
+let mat = new THREE.PointsMaterial({
+color:0xffffff,
+size:size,
+transparent:true
+});
+
+let stars = new THREE.Points(geo,mat);
+scene.add(stars);
+
+return stars;
+}
+
+let layer1 = createStarLayer(4000,2,400000);
+let layer2 = createStarLayer(2000,3,600000);
+
+/* Subtle parallax */
+function rotateStars(){
+layer1.rotation.y += 0.00005;
+layer2.rotation.y += 0.00002;
+requestAnimationFrame(rotateStars);
+}
+rotateStars();
+
+/* ========== CINEMATIC COLOR GRADING OVERLAY ========== */
+
+let grade = document.createElement("div");
+grade.style.position="fixed";
+grade.style.top="0";
+grade.style.left="0";
+grade.style.width="100%";
+grade.style.height="100%";
+grade.style.pointerEvents="none";
+grade.style.background=
+"radial-gradient(circle at center, transparent 60%, rgba(0,0,40,0.7))";
+grade.style.mixBlendMode="screen";
+document.body.appendChild(grade);
+
+/* ========== REALISTIC SUN GLOW BOOST ========== */
+
+if(typeof sun !== "undefined"){
+
+let glowGeo = new THREE.SphereGeometry(
+sun.geometry.parameters.radius * 1.4, 64,64
+);
+
+let glowMat = new THREE.MeshBasicMaterial({
+color:0xffaa33,
+transparent:true,
+opacity:0.25
+});
+
+let glowMesh = new THREE.Mesh(glowGeo, glowMat);
+sun.add(glowMesh);
+
+setInterval(()=>{
+glowMesh.scale.setScalar(
+1 + Math.sin(Date.now()*0.002)*0.08
+);
+},30);
+}
+
+/* ========== CINEMATIC CAMERA SMOOTHING ========== */
+
+if(typeof camera !== "undefined"){
+
+let targetPos = camera.position.clone();
+
+window.addEventListener("mousemove",e=>{
+let x = (e.clientX/window.innerWidth - 0.5) * 2000;
+let y = (e.clientY/window.innerHeight - 0.5) * 1000;
+targetPos.set(x, y+6000, camera.position.z);
+});
+
+function smoothCamera(){
+camera.position.lerp(targetPos,0.02);
+requestAnimationFrame(smoothCamera);
+}
+smoothCamera();
+}
+
+/* ========== BEAUTIFUL SPACE UI FRAME ========== */
+
+let frame = document.createElement("div");
+frame.style.position="fixed";
+frame.style.top="0";
+frame.style.left="0";
+frame.style.width="100%";
+frame.style.height="100%";
+frame.style.border="2px solid rgba(0,255,255,0.15)";
+frame.style.boxShadow="0 0 80px rgba(0,255,255,0.2) inset";
+frame.style.pointerEvents="none";
+document.body.appendChild(frame);
+
+/* ========== SUBTLE WARP FLASH ========== */
+
+window.addEventListener("keydown",e=>{
+if(e.key==="Enter"){
+let flash = document.createElement("div");
+flash.style.position="fixed";
+flash.style.top="0";
+flash.style.left="0";
+flash.style.width="100%";
+flash.style.height="100%";
+flash.style.background="white";
+flash.style.opacity="0.8";
+flash.style.transition="opacity 1s";
+document.body.appendChild(flash);
+
+setTimeout(()=>flash.style.opacity="0",50);
+setTimeout(()=>document.body.removeChild(flash),1000);
+}
+});
+
+/* ========== PERFORMANCE OPTIMIZATION FOR HOSTING ========== */
+
+if(renderer){
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+}
+
+/* ========== AUTO RESIZE FIX ========== */
+
+window.addEventListener("resize",()=>{
+if(camera && renderer){
+camera.aspect = window.innerWidth/window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth,window.innerHeight);
+}
+});
+
+})();
+/* ======================================================
+   🚀 FINAL STABILIZATION + MOBILE + CREATOR PATCH
+   Developed by Atharv Moon
+====================================================== */
+
+(function(){
+
+/* ======================================================
+   🔥 FIX UNDEFINED VARIABLES
+====================================================== */
+
+if(typeof planets === "undefined"){
+var planets = celestialBodies || [];
+}
+
+if(typeof focusedBody === "undefined"){
+var focusedBody = null;
+}
+
+/* Hook into focusBody safely */
+let originalFocusBodySafe = focusBody;
+focusBody = function(body){
+focusedBody = body;
+originalFocusBodySafe(body);
+};
+
+/* ======================================================
+   📱 MOBILE FRIENDLY CONTROLS
+====================================================== */
+
+let isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+if(isMobile){
+
+/* Touch rotation */
+let touchX = 0;
+
+window.addEventListener("touchstart", e=>{
+touchX = e.touches[0].clientX;
+});
+
+window.addEventListener("touchmove", e=>{
+let delta = e.touches[0].clientX - touchX;
+camera.position.x += delta * 0.5;
+touchX = e.touches[0].clientX;
+});
+
+/* Double tap = next planet */
+let lastTap = 0;
+window.addEventListener("touchend", ()=>{
+let now = Date.now();
+if(now - lastTap < 300){
+let event = new KeyboardEvent("keydown",{key:"Enter"});
+window.dispatchEvent(event);
+}
+lastTap = now;
+});
+
+}
+
+/* ======================================================
+   🌟 BETTER SUN GLOW PULSE
+====================================================== */
+
+if(typeof sun !== "undefined"){
+setInterval(()=>{
+let scale = 1 + Math.sin(Date.now()*0.002)*0.1;
+sun.scale.set(scale,scale,scale);
+},40);
+}
+
+/* ======================================================
+   🎥 SMOOTHER CAMERA INTERPOLATION
+====================================================== */
+
+let smoothTarget = null;
+
+let originalAnimateStable = animate;
+
+animate = function(){
+
+if(focusedBody){
+smoothTarget = new THREE.Vector3(
+focusedBody.position.x,
+focusedBody.position.y,
+focusedBody.position.z + (focusedBody.geometry?.parameters?.radius || 5000)*6
+);
+
+camera.position.lerp(smoothTarget,0.06);
+camera.lookAt(focusedBody.position);
+}
+
+/* Prevent duplicate loops */
+if(originalAnimateStable){
+originalAnimateStable();
+}
+
+};
+
+/* ======================================================
+   🌠 EXTRA DEPTH STARFIELD
+====================================================== */
+
+let extraStars = new THREE.Points(
+new THREE.BufferGeometry().setAttribute(
+"position",
+new THREE.Float32BufferAttribute(
+Array.from({length:5000},()=> (Math.random()-0.5)*1000000),
+3
+)
+),
+new THREE.PointsMaterial({color:0x88ccff,size:2})
+);
+
+scene.add(extraStars);
+
+setInterval(()=>{
+extraStars.rotation.y += 0.00003;
+},40);
+
+/* ======================================================
+   💎 PREMIUM UI BADGE
+====================================================== */
+
+let badge = document.createElement("div");
+badge.innerHTML = "🚀 Developed by Atharv Moon";
+badge.style.position = "absolute";
+badge.style.left = "20px";
+badge.style.bottom = "20px";
+badge.style.padding = "10px 15px";
+badge.style.fontFamily = "monospace";
+badge.style.color = "cyan";
+badge.style.background = "rgba(0,0,0,0.6)";
+badge.style.border = "1px solid cyan";
+badge.style.borderRadius = "10px";
+badge.style.boxShadow = "0 0 15px cyan";
+badge.style.zIndex = "1000";
+document.body.appendChild(badge);
+
+/* Glow animation */
+setInterval(()=>{
+badge.style.boxShadow = "0 0 "+(15+Math.sin(Date.now()*0.003)*10)+"px cyan";
+},40);
+
+/* ======================================================
+   📱 RESPONSIVE UI RESIZE FIX
+====================================================== */
+
+function adjustUI(){
+if(window.innerWidth < 600){
+ui.style.width = "90%";
+ui.style.left = "5%";
+ui.style.right = "5%";
+}
+}
+adjustUI();
+window.addEventListener("resize",adjustUI);
+
+/* ======================================================
+   ✨ ENTER PLANET ENTRY EFFECT (SAFE)
+====================================================== */
+
+window.addEventListener("keydown",e=>{
+if(e.key==="Enter"){
+let overlay = document.createElement("div");
+overlay.style.position="fixed";
+overlay.style.top="0";
+overlay.style.left="0";
+overlay.style.width="100%";
+overlay.style.height="100%";
+overlay.style.background="radial-gradient(circle, white, transparent)";
+overlay.style.opacity="0.8";
+overlay.style.transition="opacity 1s";
+overlay.style.pointerEvents="none";
+document.body.appendChild(overlay);
+
+setTimeout(()=>overlay.style.opacity="0",50);
+setTimeout(()=>document.body.removeChild(overlay),1000);
+}
+});
+
+/* ======================================================
+   🎮 MOBILE HUD BUTTONS
+====================================================== */
+
+if(isMobile){
+
+let nextBtn = document.createElement("button");
+nextBtn.innerHTML = "Next Planet";
+nextBtn.style.position="absolute";
+nextBtn.style.bottom="80px";
+nextBtn.style.right="20px";
+nextBtn.style.padding="12px";
+nextBtn.style.background="cyan";
+nextBtn.style.border="none";
+nextBtn.style.borderRadius="8px";
+nextBtn.style.fontWeight="bold";
+nextBtn.onclick=()=>{
+let event = new KeyboardEvent("keydown",{key:"Enter"});
+window.dispatchEvent(event);
+};
+document.body.appendChild(nextBtn);
+
+}
+
+/* ======================================================
+   🌌 PERFORMANCE SAFE LOOP FIX
+====================================================== */
+
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+
+})();
+/* ======================================================
+   🚀 NASA PRO CINEMATIC EXPANSION
+   Developed by Atharv Moon
+====================================================== */
+
+(function(){
+
+/* ======================================================
+   🌟 REAL POST PROCESS BLOOM
+====================================================== */
+
+if(typeof THREE !== "undefined" && typeof renderer !== "undefined"){
+
+const composer = new THREE.EffectComposer(renderer);
+const renderPass = new THREE.RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const bloomPass = new THREE.UnrealBloomPass(
+new THREE.Vector2(window.innerWidth, window.innerHeight),
+1.2,  // strength
+0.4,  // radius
+0.85  // threshold
+);
+composer.addPass(bloomPass);
+
+/* Replace render loop safely */
+let originalAnimate = animate;
+animate = function(){
+if(originalAnimate) originalAnimate();
+composer.render();
+};
+
+}
+
+/* ======================================================
+   ☀️ PHYSICALLY CORRECT LIGHTING
+====================================================== */
+
+renderer.physicallyCorrectLights = true;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+/* ======================================================
+   🌍 SIMPLE ATMOSPHERE SHADER EFFECT
+====================================================== */
+
+if(typeof celestialBodies !== "undefined"){
+
+celestialBodies.forEach(body=>{
+
+if(body.geometry){
+
+let atmosphere = new THREE.Mesh(
+new THREE.SphereGeometry(
+body.geometry.parameters.radius * 1.08, 64, 64
+),
+new THREE.MeshBasicMaterial({
+color: 0x66ccff,
+transparent:true,
+opacity:0.15,
+side:THREE.BackSide
+})
+);
+
+body.add(atmosphere);
+
+}
+
+});
+
+}
+
+/* ======================================================
+   🌌 HDR STYLE SKY GRADIENT
+====================================================== */
+
+let skyGeo = new THREE.SphereGeometry(2000000,64,64);
+let skyMat = new THREE.ShaderMaterial({
+side:THREE.BackSide,
+uniforms:{
+topColor:{value:new THREE.Color(0x000011)},
+bottomColor:{value:new THREE.Color(0x220044)}
+},
+vertexShader:`
+varying vec3 vPos;
+void main(){
+vPos = position;
+gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}
+`,
+fragmentShader:`
+uniform vec3 topColor;
+uniform vec3 bottomColor;
+varying vec3 vPos;
+void main(){
+float h = normalize(vPos).y;
+gl_FragColor = vec4(mix(bottomColor, topColor, max(h,0.0)),1.0);
+}
+`
+});
+
+let sky = new THREE.Mesh(skyGeo, skyMat);
+scene.add(sky);
+
+/* ======================================================
+   🌫 SPACE DUST VOLUMETRICS
+====================================================== */
+
+let dustGeo = new THREE.BufferGeometry();
+let dustVertices = [];
+
+for(let i=0;i<8000;i++){
+dustVertices.push(
+(Math.random()-0.5)*800000,
+(Math.random()-0.5)*800000,
+(Math.random()-0.5)*800000
+);
+}
+
+dustGeo.setAttribute(
+"position",
+new THREE.Float32BufferAttribute(dustVertices,3)
+);
+
+let dustMat = new THREE.PointsMaterial({
+color:0x8888ff,
+size:3,
+transparent:true,
+opacity:0.4
+});
+
+let dust = new THREE.Points(dustGeo,dustMat);
+scene.add(dust);
+
+/* ======================================================
+   🪐 PLANET SURFACE LANDING MODE
+====================================================== */
+
+window.addEventListener("keydown",e=>{
+if(e.key==="l" && typeof focusedBody !== "undefined" && focusedBody){
+
+camera.position.set(
+focusedBody.position.x,
+focusedBody.position.y + focusedBody.geometry.parameters.radius + 2000,
+focusedBody.position.z + 2000
+);
+
+camera.lookAt(focusedBody.position);
+
+}
+
+});
+
+/* ======================================================
+   🛰 MINI RADAR MAP
+====================================================== */
+
+let radar = document.createElement("canvas");
+radar.width = 200;
+radar.height = 200;
+radar.style.position="absolute";
+radar.style.top="20px";
+radar.style.right="20px";
+radar.style.background="rgba(0,0,0,0.6)";
+radar.style.border="1px solid cyan";
+document.body.appendChild(radar);
+
+let ctx = radar.getContext("2d");
+
+function drawRadar(){
+
+ctx.clearRect(0,0,200,200);
+
+ctx.fillStyle="cyan";
+ctx.beginPath();
+ctx.arc(100,100,5,0,Math.PI*2);
+ctx.fill();
+
+if(typeof celestialBodies !== "undefined"){
+celestialBodies.forEach(body=>{
+let x = 100 + body.position.x/50000;
+let y = 100 + body.position.z/50000;
+ctx.fillRect(x,y,3,3);
+});
+}
+
+requestAnimationFrame(drawRadar);
+}
+drawRadar();
+
+/* ======================================================
+   💾 SAVE CAMERA STATE
+====================================================== */
+
+window.addEventListener("keydown",e=>{
+
+if(e.key==="k"){ // Save
+localStorage.setItem("camPos",
+JSON.stringify(camera.position));
+}
+
+if(e.key==="j"){ // Load
+let saved = localStorage.getItem("camPos");
+if(saved){
+let pos = JSON.parse(saved);
+camera.position.set(pos.x,pos.y,pos.z);
+}
+}
+
+});
+
+/* ======================================================
+   🔥 SUPER CINEMATIC CAMERA SHAKE (SUPERNOVA)
+====================================================== */
+
+window.addEventListener("keydown",e=>{
+if(e.key==="n"){
+
+let shakeDuration = 1000;
+let start = Date.now();
+
+function shake(){
+let elapsed = Date.now()-start;
+if(elapsed < shakeDuration){
+camera.position.x += (Math.random()-0.5)*200;
+camera.position.y += (Math.random()-0.5)*200;
+requestAnimationFrame(shake);
+}
+}
+shake();
+
+}
+});
+
+/* ======================================================
+   🚀 RESIZE FIX
+====================================================== */
+
+window.addEventListener("resize",()=>{
+if(typeof composer !== "undefined"){
+composer.setSize(window.innerWidth,window.innerHeight);
+}
+});
+
+})();
+
+</script>
+
+</body>
+</html>
